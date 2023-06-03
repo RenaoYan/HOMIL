@@ -11,11 +11,11 @@ def get_args():
     parser = argparse.ArgumentParser(description='Build K-Fold Dataset')
     parser.add_argument('--seed', type=int, default=10, help='random seed')
     parser.add_argument('--n_splits', type=int, default=5, help='the split number of KFold')
-    parser.add_argument('--csv_dir', type=str, default='/data_sdf/yra/BCL/内院_7.csv',
+    parser.add_argument('--csv_dir', type=str, default='',
                         help='csv file of the train/val dataset')
-    parser.add_argument('--test_csv_dir', type=str, default='/data_sdf/yra/BCL/外院_7.csv',
+    parser.add_argument('--test_csv_dir', type=str, default='',
                         help='csv file of the test dataset')
-    parser.add_argument('--save_dir', type=str, default='/data_sdf/yra/BCL', help='dir to save split dataset')
+    parser.add_argument('--save_dir', type=str, default='./csv', help='dir to save split dataset')
     args = parser.parse_args()
     return args
 
@@ -27,6 +27,7 @@ def count_label_distribution(labels):
 
 
 def split_dataset(args, data_col='slide_id', label_col='label', verbose=True):
+    os.makedirs(args.save_dir, exist_ok=True)
     df = pd.read_csv(args.csv_dir, encoding='gbk')
     slides = np.array(df[data_col])
     targets = np.array(df[label_col])
@@ -36,7 +37,7 @@ def split_dataset(args, data_col='slide_id', label_col='label', verbose=True):
         labels = np.append(labels, label_dict.get(label))
 
     if os.path.exists(args.test_csv_dir):
-        df = pd.read_csv(args.csv_dir, encoding='gbk')
+        df = pd.read_csv(args.test_csv_dir)
         test_slides = np.array(df[data_col])
         test_targets = np.array(df[label_col])
 
