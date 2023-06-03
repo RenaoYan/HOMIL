@@ -1,10 +1,10 @@
-import torch
-import glob
 import os
-import numpy as np
-from torch.utils.data import Dataset
-import PIL.Image as Image
+import glob
+import torch
 import random
+import numpy as np
+import PIL.Image as Image
+from torch.utils.data import Dataset
 
 
 # M2's dataset
@@ -29,7 +29,7 @@ class M2Dataset(Dataset):
     def get_feat(self):
         feat_files = {}
         for slide_id in self.slide_ids:
-            feat_files[id] = [os.path.join(self.feat_dir, slide_id + '.pt')]
+            feat_files[slide_id] = [os.path.join(self.feat_dir, slide_id + '.pt')]
         return feat_files
 
     def get_labeled_feat(self):
