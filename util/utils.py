@@ -6,12 +6,12 @@ import h5py
 import torch
 import random
 import numpy as np
-from tqdm import tqdm
 from torch import nn
-from dataset.dataset import M2Dataset, M1Dataset, Extract_Feat_Dataset
-from torch.utils.data import DataLoader
+from tqdm import tqdm
 from util.metrics import draw_metrics
+from torch.utils.data import DataLoader
 from util.preprocess import set_transforms
+from dataset.dataset import M2Dataset, M1Dataset, Extract_Feat_Dataset
 from util.train_utils import m2_train_epoch, m2_pred, m2_patch_pred, m1_train_epoch, m1_pred, feat_extraction
 from models.MIL_models import ABMIL, Feat_Classifier, CLAM_SB, CLAM_MB, Joint_ABMIL, Joint_Feat_Classifier, Aux_Model
 
@@ -78,8 +78,8 @@ def adjust_feat_aug(args, mixup_rate=2, discard_factor=0.1):
         if args.round_id >= args.feat_aug_warmup_round:
             mixup_num = min(args.mixup_num_th,
                             pow(mixup_rate, args.mixup_num + args.round_id - args.feat_aug_warmup_round))
-            discard_rate = max(args.discard_rate_th,
-                               discard_rate - discard_factor * (args.round_id - args.feat_aug_warmup_round))
+            discard_rate = min(args.discard_rate_th,
+                               discard_rate + discard_factor * (args.round_id - args.feat_aug_warmup_round))
     return mixup_num, discard_rate
 
 
@@ -138,7 +138,8 @@ def M2_updating(args):
             for warmup_epoch in range(1, joint_warmup_epochs + 1):
                 m2_train_epoch(round_id, warmup_epoch, model, optimizer, train_loader, criterion, device, num_classes,
                                MIL_model, dropout_rate=1, joint=True)
-                loss, acc, _, _, _, _ = m2_pred(round_id, model, val_loader, criterion, device, num_classes, True)
+                loss, acc, _, _, _, _ = m2_pred(round_id, model, val_loader, criterion, device, num_classes, MIL_model,
+                                                True)
                 counter = warmup_early_stopping(warmup_epoch, loss, model, acc)
                 if warmup_early_stopping.early_stop:
                     print('Early Stop!')
@@ -149,12 +150,15 @@ def M2_updating(args):
                     for params in optimizer.param_groups:
                         params['lr'] = lr
             model.load_state_dict(torch.load(M2_model_dir, map_location='cpu'))
-            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, train_loader1, criterion, device, num_classes, True)
-            draw_metrics(ts_writer, 'Train', num_classes, loss, acc, auc, mat, f1, round_id)
-            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes, True)
-            draw_metrics(ts_writer, 'Val', num_classes, loss, acc, auc, mat, f1, round_id)
-            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes, True)
-            draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, mat, f1, round_id)
+            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, train_loader1, criterion, device, num_classes,
+                                                 MIL_model, True)
+            draw_metrics(ts_writer, 'Train_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
+            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes,
+                                                 MIL_model, True)
+            draw_metrics(ts_writer, 'Val_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
+            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
+                                                 MIL_model, True)
+            draw_metrics(ts_writer, 'Test_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
 
             model = Joint_ABMIL(n_classes=num_classes, dropout=0.5).to(device)
             model.load_state_dict(torch.load(M2_model_dir, map_location='cpu'))
@@ -165,7 +169,8 @@ def M2_updating(args):
         for m2_epoch in range(warmup_epoch + 1, warmup_epoch + args.M2_epochs + 1):
             m2_train_epoch(round_id, warmup_epoch, model, optimizer, train_loader, criterion, device, num_classes,
                            MIL_model, dropout_rate=dropout_rate, joint=joint)
-            loss, acc, _, _, _, _ = m2_pred(round_id, model, val_loader, criterion, device, num_classes, joint)
+            loss, acc, _, _, _, _ = m2_pred(round_id, model, val_loader, criterion, device, num_classes, MIL_model,
+                                            joint)
             counter = early_stopping(m2_epoch, loss, model, acc)
             if early_stopping.early_stop:
                 print('Early Stopping')
@@ -176,11 +181,14 @@ def M2_updating(args):
                 for params in optimizer.param_groups:
                     params['lr'] = lr
     model.load_state_dict(torch.load(M2_model_dir, map_location='cpu'))
-    loss, acc, auc, mat, train_attns, f1 = m2_pred(round_id, model, train_loader1, criterion, device, num_classes, True)
+    loss, acc, auc, mat, train_attns, f1 = m2_pred(round_id, model, train_loader1, criterion, device, num_classes,
+                                                   MIL_model, joint, 'Train')
     draw_metrics(ts_writer, 'Train', num_classes, loss, acc, auc, mat, f1, round_id)
-    loss, acc, auc, mat, val_attns, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes, True)
+    loss, acc, auc, mat, val_attns, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes,
+                                                 MIL_model, joint, 'Val')
     draw_metrics(ts_writer, 'Val', num_classes, loss, acc, auc, mat, f1, round_id)
-    loss, acc, auc, mat, test_attns, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes, True)
+    loss, acc, auc, mat, test_attns, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
+                                                  MIL_model, joint, 'Test')
     draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, mat, f1, round_id)
 
     if joint:
@@ -197,12 +205,12 @@ def M2_updating(args):
            'test_attns': test_attns, 'test_probs': test_probs}
 
     if args.label_correction and round_id > 0:
-        patch_model = Aux_Model(args.num_classes)
+        patch_model = Feat_Classifier(args.num_classes)
         if args.joint:
-            pre_M1_model_dir = os.path.join(args.M1_model_dir, 'joint_encoder_{}.pth'.format(round_id))
+            M1_model_dir = os.path.join(args.M1_model_dir, 'joint_encoder_{}.pth'.format(round_id))
         else:
-            pre_M1_model_dir = os.path.join(args.M1_model_dir, 'encoder_{}.pth'.format(round_id))
-        patch_model.load_state_dict(torch.load(pre_M1_model_dir, map_location='cpu'))
+            M1_model_dir = os.path.join(args.M1_model_dir, 'encoder_{}.pth'.format(round_id))
+        patch_model.load_state_dict(torch.load(M1_model_dir, map_location='cpu'), strict=False)
         patch_model.to(device)
         train_aux_probs = m2_patch_pred(patch_model, train_loader1, device, False)
         val_aux_probs = m2_patch_pred(patch_model, val_loader, device, False)
@@ -220,7 +228,6 @@ def E_step(args, obj):
     dataset = args.dataset
     round_id = args.round_id
     coord_dir = args.coord_dir
-    label_dict = args.label_dict
     K0 = args.K0
 
     new_obj = {}
@@ -272,12 +279,11 @@ def E_step(args, obj):
                 idx = ptopk_id.tolist()
 
                 # negative Top-K tumor patches
-                if 'non-tumor' in label_dict:
-                    _, ntopk_id = torch.topk(-score, k=K, dim=0)
-                    ntopk_coords = coords[ntopk_id.numpy()].tolist()
-                    select_coords = select_coords + ntopk_coords
-                    label = label + [0] * K
-                    idx = idx + ntopk_id.tolist()
+                _, ntopk_id = torch.topk(-score, k=K, dim=0)
+                ntopk_coords = coords[ntopk_id.numpy()].tolist()
+                select_coords = select_coords + ntopk_coords
+                label = label + [0] * K
+                idx = idx + ntopk_id.tolist()
                 if aux_probs is not None:
                     resumed_select_coords = select_coords.copy()
                     resumed_label = label.copy()
@@ -286,7 +292,7 @@ def E_step(args, obj):
                     aux_prob = torch.transpose(aux_prob[idx, :], 1, 0)
                     _, pred_label = torch.max(aux_prob, dim=1)
                     wrong_idx = np.where(pred_label.numpy() != slide_label)
-                    wrong_probs = np.max(aux_prob[wrong_idx], axis=1)
+                    wrong_probs, _ = torch.max(aux_prob[wrong_idx], dim=1)
 
                     label_correction_th = args.label_correction_th if 'train' in item else 0.9
                     for i in range(len(wrong_probs)):
@@ -381,12 +387,12 @@ def extract_feature(args):
         M1_model.load_state_dict(torch.load(M1_model_dir, map_location='cpu'))
         print('loading checkpoints from ', M1_model_dir)
     else:
-        print('using pretrained weights')
+        print('using checkpoints from ImageNet')
     model = M1_model.to(device)
 
     coord_dir = args.coord_dir
     os.makedirs(coord_dir, exist_ok=True)
-    feat_dir = args.feat_dir
+    feat_dir = args.pretrained_feat_dir if round_id == 0 else args.feat_dir
     os.makedirs(feat_dir, exist_ok=True)
     patch_dir = args.patch_dir
     test_patch_dir = args.test_patch_dir
@@ -428,7 +434,7 @@ def extract_feature(args):
                 f.close()
             torch.save(features, feat_path)
 
-            pbar.set_description('WSI: {}, with {} patches'.format(slide_name, len(dset)))
+            pbar.set_description('Round: {}, WSI: {}, with {} patches'.format(round_id, slide_name, len(dset)))
             pbar.update(1)
 
     end = time.time()

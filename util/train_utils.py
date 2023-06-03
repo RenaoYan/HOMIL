@@ -23,16 +23,16 @@ def m2_train_epoch(round_id, m2_epoch, model, optimizer, loader, criterion, devi
                 fixed_feat = fixed_feat.to(device)
                 fixed_feat = drop_layer(fixed_feat) if dropout_rate > 0 else fixed_feat
                 logit, attn, _ = model(feat, fixed_feat)
-                loss = criterion(logit, target)
+                loss = criterion(logit, target.long())
             else:
                 if 'ABMIL' in model_suffix:
                     logit, attn = model(feat)
-                    loss = criterion(logit, target)
+                    loss = criterion(logit, target.long())
                 elif 'CLAM' in model_suffix:
                     bag_weight = 0.7
                     logit, attn, instance_dict = model(feat, target, instance_eval=True)
                     instance_loss = instance_dict['instance_loss']
-                    loss = bag_weight * criterion(logit, target) + (1 - bag_weight) * instance_loss
+                    loss = bag_weight * criterion(logit, target.long()) + (1 - bag_weight) * instance_loss
                 else:
                     raise NotImplementedError
 
@@ -41,7 +41,7 @@ def m2_train_epoch(round_id, m2_epoch, model, optimizer, loader, criterion, devi
             logits = torch.cat((logits, logit.detach().cpu()), dim=0)
             targets = torch.cat((targets, target.cpu()), dim=0)
             acc, f1, roc_auc = calculate_metrics(logits, targets, num_classes)
-            loss_all += loss.item() * len(target)
+            loss_all += loss.detach().item() * len(target)
 
             # loss backward
             loss.backward()
@@ -65,7 +65,6 @@ def m2_pred(round_id, model, loader, criterion, device, num_classes, model_suffi
                 slide_id, feat, target = sample['slide_id'], sample['feat'], sample['target']
                 feat = feat.to(device)
                 target = target.to(device)
-
                 if joint:
                     fixed_feat = sample['fixed_feat']
                     fixed_feat = fixed_feat.to(device)
@@ -79,7 +78,8 @@ def m2_pred(round_id, model, loader, criterion, device, num_classes, model_suffi
                         raise NotImplementedError
 
                 # calculate metrics
-                loss = criterion(logit, target)
+                attns[slide_id[0]] = attn
+                loss = criterion(logit, target.long())
                 logits = torch.cat((logits, logit.detach().cpu()), dim=0)
                 targets = torch.cat((targets, target.cpu()), dim=0)
                 loss_all += loss.item() * len(target)
@@ -124,10 +124,10 @@ def m1_train_epoch(round_id, m1_epoch, model, optimizer, loader, criterion, devi
             target = target.to(device)
             logit = model(img)
 
-            loss = criterion(logit, target)
+            loss = criterion(logit, target.long())
             logits = torch.cat((logits, logit.detach().cpu()), dim=0)
             targets = torch.cat((targets, target.cpu()), dim=0)
-            loss_all += loss.item() * len(target)
+            loss_all += loss.detach().item() * len(target)
 
             loss.backward()
             optimizer.step()
@@ -148,8 +148,8 @@ def m1_pred(round_id, model, loader, criterion, device, num_classes, status='Val
             for i, (img, target) in enumerate(loader):
                 img = img.to(device)
                 target = target.to(device)
-                logit, _ = model(img)
-                loss = criterion(logit, target).item()
+                logit = model(img)
+                loss = criterion(logit, target.long()).item()
 
                 logits = torch.cat((logits, logit.cpu()), dim=0)
                 targets = torch.cat((targets, target.cpu()), dim=0)
