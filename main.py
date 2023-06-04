@@ -1,9 +1,9 @@
 import os
 import torch
 import argparse
-from util.preprocess import build_dataset
+from utils.preprocess import build_dataset
 from torch.utils.tensorboard import SummaryWriter
-from util.utils import set_seed, M2_updating, E_step, M1_updating, extract_feature
+from utils.utils import set_seed, M2_updating, E_step, M1_updating, extract_feature
 
 
 def get_args():
@@ -47,6 +47,11 @@ def get_args():
     parser.add_argument('--K0', type=int, default=2, help='initial top-K to select auxiliary dataset')
     parser.add_argument('--label_correction', action='store_true', help='use label correction')
     parser.add_argument('--label_correction_th', type=float, default=0.7, help='prob threshold to correct label')
+    parser.add_argument('--save_topK', action='store_true', help='save top-K coords')
+    parser.add_argument('--save_ptopK_rate', type=float, default=1,
+                        help='the number rate of positive top-K coords to save')
+    parser.add_argument('--save_ntopK_num', type=int, default=5,
+                        help='the fixed number of negative top-K coords to save')
 
     # M1 params.
     parser.add_argument('--M1_epochs', type=int, default=400, help='M1 epochs to train')
@@ -55,12 +60,13 @@ def get_args():
     parser.add_argument('--M1_batch_size', type=int, default=64, help='M1 batch size')
 
     # dir params.
-    parser.add_argument('--patch_dir', type=str, default='', help='train/val patch dir')
-    parser.add_argument('--test_patch_dir', type=str, default='', help='test patch dir')
     parser.add_argument('--ckpt_dir', type=str, default='./ckpt', help='dir to save M1/M2 models')
     parser.add_argument('--csv_dir', type=str, default='./csv', help='csv dir to load data')
     parser.add_argument('--data_dir', type=str, default='./data', help='train/val/test dir for feat/coord')
-    parser.add_argument('--ts_dir', type=str, default='./tensorboard', help='tensorboard dir')
+    parser.add_argument('--patch_dir', type=str, default='', help='train/val patch dir')
+    parser.add_argument('--test', action='store_true', help='use test dataset')
+    parser.add_argument('--test_patch_dir', type=str, default='', help='test patch dir')
+    parser.add_argument('--ts_dir', type=str, default='./logger', help='tensorboard dir')
     args = parser.parse_args()
     return args
 
@@ -88,8 +94,13 @@ if __name__ == '__main__':
 
     # set feat/coord dirs
     args.pretrained_feat_dir = os.path.join(args.data_dir, 'feat0')
-    args.feat_dir = os.path.join(args.data_dir, 'feat_{}'.format(args.experiment_name))
+    os.makedirs(args.pretrained_feat_dir, exist_ok=True)
+    args.feat_dir = os.path.join(args.data_dir, 'feat', args.experiment_name)
+    os.makedirs(args.feat_dir, exist_ok=True)
     args.coord_dir = os.path.join(args.data_dir, 'coord')
+    os.makedirs(args.coord_dir, exist_ok=True)
+    args.topk_coord_dir = os.path.join(args.data_dir, 'topk_coord', args.experiment_name)
+    os.makedirs(args.topk_coord_dir, exist_ok=True)
     args = build_dataset(args)
 
     args.round_id = args.continue_round

@@ -5,6 +5,7 @@ pillow
 tqdm
 timm
 matplotlib
+opencv-python
 torch
 torchvision
 scikit-learn
