@@ -94,8 +94,8 @@ def M2_updating(args):
     lr = args.M2_max_lr
     min_lr = args.M2_min_lr
     dataset = args.dataset
-    train_dataset, val_dataset, test_dataset = dataset['train'], dataset['val'], dataset['test']
-    feat_dir = args.pretrained_feat_dir if round_id == 0 else args.feat_dir
+    train_dataset, val_dataset = dataset['train'], dataset['val']
+    feat_dir = args.pretrained_feat_dir if round_id == 0 else os.path.join(args.feat_dir, 'round_{}'.format(round_id))
     joint = args.joint
     fixed_feat_dir = args.fixed_feat_dir if joint else None
     joint_warmup_epochs = args.joint_warmup_epochs if joint else 0
@@ -108,8 +108,10 @@ def M2_updating(args):
     train_loader1 = DataLoader(train_dset1, batch_size=1, shuffle=False, num_workers=0)
     val_dset = M2Dataset(val_dataset, feat_dir, fixed_feat_dir=fixed_feat_dir)
     val_loader = DataLoader(val_dset, batch_size=1, shuffle=False, num_workers=0)
-    test_dset = M2Dataset(test_dataset, feat_dir, fixed_feat_dir=fixed_feat_dir)
-    test_loader = DataLoader(test_dset, batch_size=1, shuffle=False, num_workers=0)
+    if args.test:
+        test_dataset = dataset['test']
+        test_dset = M2Dataset(test_dataset, feat_dir, fixed_feat_dir=fixed_feat_dir)
+        test_loader = DataLoader(test_dset, batch_size=1, shuffle=False, num_workers=0)
     criterion = nn.CrossEntropyLoss()
 
     os.makedirs(args.M2_model_dir, exist_ok=True)
@@ -156,9 +158,10 @@ def M2_updating(args):
             loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes,
                                                  MIL_model, True)
             draw_metrics(ts_writer, 'Val_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
-            loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
-                                                 MIL_model, True)
-            draw_metrics(ts_writer, 'Test_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
+            if args.test:
+                loss, acc, auc, mat, _, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
+                                                     MIL_model, True)
+                draw_metrics(ts_writer, 'Test_WarmUp', num_classes, loss, acc, auc, mat, f1, round_id)
 
             model = Joint_ABMIL(n_classes=num_classes, dropout=0.5).to(device)
             model.load_state_dict(torch.load(M2_model_dir, map_location='cpu'))
@@ -187,10 +190,6 @@ def M2_updating(args):
     loss, acc, auc, mat, val_attns, f1 = m2_pred(round_id, model, val_loader, criterion, device, num_classes,
                                                  MIL_model, joint, 'Val')
     draw_metrics(ts_writer, 'Val', num_classes, loss, acc, auc, mat, f1, round_id)
-    loss, acc, auc, mat, test_attns, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
-                                                  MIL_model, joint, 'Test')
-    draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, mat, f1, round_id)
-
     if joint:
         patch_model = Joint_Feat_Classifier(n_classes=num_classes).to(device)
     else:
@@ -198,11 +197,14 @@ def M2_updating(args):
     patch_model.load_state_dict(torch.load(M2_model_dir, map_location='cpu'), strict=False)
     train_probs = m2_patch_pred(patch_model, train_loader1, device, joint)
     val_probs = m2_patch_pred(patch_model, val_loader, device, joint)
-    test_probs = m2_patch_pred(patch_model, test_loader, device, joint)
-
     obj = {'train_attns': train_attns, 'train_probs': train_probs,
-           'val_attns': val_attns, 'val_probs': val_probs,
-           'test_attns': test_attns, 'test_probs': test_probs}
+           'val_attns': val_attns, 'val_probs': val_probs}
+    if args.test:
+        loss, acc, auc, mat, test_attns, f1 = m2_pred(round_id, model, test_loader, criterion, device, num_classes,
+                                                      MIL_model, joint, 'Test')
+        draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, mat, f1, round_id)
+        test_probs = m2_patch_pred(patch_model, test_loader, device, joint)
+        obj.update({'test_attns': test_attns, 'test_probs': test_probs})
 
     if args.label_correction and round_id > 0:
         patch_model = Feat_Classifier(args.num_classes)
@@ -214,10 +216,11 @@ def M2_updating(args):
         patch_model.to(device)
         train_aux_probs = m2_patch_pred(patch_model, train_loader1, device, False)
         val_aux_probs = m2_patch_pred(patch_model, val_loader, device, False)
-        test_aux_probs = m2_patch_pred(patch_model, test_loader, device, False)
         obj.update({'train_aux_probs': train_aux_probs,
-                    'val_aux_probs': val_aux_probs,
-                    'test_aux_probs': test_aux_probs})
+                    'val_aux_probs': val_aux_probs})
+        if args.test:
+            test_aux_probs = m2_patch_pred(patch_model, test_loader, device, False)
+            obj.update({'test_aux_probs': test_aux_probs})
     end = time.time()
     print('M2 use time: ', end - start)
 
@@ -229,6 +232,8 @@ def E_step(args, obj):
     round_id = args.round_id
     coord_dir = args.coord_dir
     K0 = args.K0
+    topk_coord_dir = os.path.join(args.topk_coord_dir, 'round_{}'.format(round_id))
+    os.makedirs(topk_coord_dir, exist_ok=True)
 
     new_obj = {}
     print('------------------E stage starts-----------------')
@@ -284,6 +289,20 @@ def E_step(args, obj):
                 select_coords = select_coords + ntopk_coords
                 label = label + [0] * K
                 idx = idx + ntopk_id.tolist()
+                if args.save_topK:
+                    _, save_ptopk_id = torch.topk(score, k=args.save_ptopK_rate * K, dim=0)
+                    save_ptopk_coords = coords[save_ptopk_id.numpy()].tolist()
+                    save_coords = save_ptopk_coords
+                    _, save_ntopk_id = torch.topk(-score, k=args.save_ntopK_num, dim=0)
+                    save_ntopk_coords = coords[save_ntopk_id.numpy()].tolist()
+                    save_coords = save_coords + save_ntopk_coords
+                    topk_coord_path = os.path.join(topk_coord_dir, slide_id + '.h5')
+                    if not os.path.exists(topk_coord_path):
+                        f = h5py.File(topk_coord_path, 'w')
+                        f["coords"] = save_coords
+                        f.close()
+                if args.inference_only:
+                    continue
                 if aux_probs is not None:
                     resumed_select_coords = select_coords.copy()
                     resumed_label = label.copy()
@@ -326,15 +345,12 @@ def M1_updating(args, new_obj):
     batch_size = args.M1_batch_size
     train_dset_patch = new_obj['train_dset_patch']
     val_dset_patch = new_obj['val_dset_patch']
-    test_dset_patch = new_obj['test_dset_patch']
     train_dset = M1Dataset(split=train_dset_patch, patch_dir=patch_dir, transform=set_transforms(True))
     train_loader = DataLoader(train_dset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=False)
     train_dset1 = M1Dataset(split=train_dset_patch, patch_dir=patch_dir, transform=set_transforms(False))
     train_loader1 = DataLoader(train_dset1, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=False)
     val_dset = M1Dataset(split=val_dset_patch, patch_dir=patch_dir, transform=set_transforms(False))
     val_loader = DataLoader(val_dset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=False)
-    test_dset = M1Dataset(split=test_dset_patch, patch_dir=patch_dir, transform=set_transforms(False))
-    test_loader = DataLoader(test_dset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=False)
 
     criterion = nn.CrossEntropyLoss()
     os.makedirs(args.M1_model_dir, exist_ok=True)
@@ -365,8 +381,12 @@ def M1_updating(args, new_obj):
     draw_metrics(ts_writer, 'Train', num_classes, loss, acc, auc, None, f1, round_id)
     loss, acc, auc, f1 = m1_pred(round_id, model, val_loader, criterion, device, num_classes, status='Val')
     draw_metrics(ts_writer, 'Val', num_classes, loss, acc, auc, None, f1, round_id)
-    loss, acc, auc, f1 = m1_pred(round_id, model, test_loader, criterion, device, num_classes, status='Test')
-    draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, None, f1, round_id)
+    if args.test:
+        test_dset_patch = new_obj['test_dset_patch']
+        test_dset = M1Dataset(split=test_dset_patch, patch_dir=patch_dir, transform=set_transforms(False))
+        test_loader = DataLoader(test_dset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=False)
+        loss, acc, auc, f1 = m1_pred(round_id, model, test_loader, criterion, device, num_classes, status='Test')
+        draw_metrics(ts_writer, 'Test', num_classes, loss, acc, auc, None, f1, round_id)
 
     end = time.time()
     print('M1 use time: ', end - start)
@@ -390,10 +410,7 @@ def extract_feature(args):
         print('using checkpoints from ImageNet')
     model = M1_model.to(device)
 
-    coord_dir = args.coord_dir
-    os.makedirs(coord_dir, exist_ok=True)
-    feat_dir = args.pretrained_feat_dir if round_id == 0 else args.feat_dir
-    os.makedirs(feat_dir, exist_ok=True)
+    feat_dir = args.pretrained_feat_dir if round_id == 0 else os.path.join(args.feat_dir, 'round_{}'.format(round_id))
     patch_dir = args.patch_dir
     test_patch_dir = args.test_patch_dir
 
@@ -413,7 +430,7 @@ def extract_feature(args):
             slide_name = os.path.basename(slide_path).split('.')[0]
             coord_dir = os.path.join(args.coord_dir, slide_name + '.h5')
             feat_path = os.path.join(feat_dir, '{}.pt'.format(slide_name))
-            if os.path.exists(feat_path) and round_id <= 1:
+            if os.path.exists(feat_path) and round_id == 0:
                 pbar.update(1)
                 continue
 
