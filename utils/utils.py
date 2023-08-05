@@ -73,14 +73,17 @@ class EarlyStopping:
 
 
 def adjust_feat_aug(args, mixup_rate=2, discard_factor=0.1):
-    mixup_num, discard_rate = args.mixup_num, args.discard_rate
-    if args.feat_aug_method == 'dynamic':
-        if args.round_id >= args.feat_aug_warmup_round:
-            mixup_num = min(args.mixup_num_th,
-                            pow(mixup_rate, args.mixup_num + args.round_id - args.feat_aug_warmup_round))
-            discard_rate = min(args.discard_rate_th,
-                               discard_rate + discard_factor * (args.round_id - args.feat_aug_warmup_round))
-    return mixup_num, discard_rate
+    mixup_num, discard_rate = 0, 0
+    if args.feat_aug:
+        if args.feat_aug_method == 'dynamic':
+            if args.round_id >= args.feat_aug_warmup_round:
+                mixup_num = min(args.mixup_num_th,
+                                args.mixup_num + mixup_rate * (args.round_id - args.feat_aug_warmup_round))
+                discard_rate = min(args.discard_rate_th,
+                                   discard_rate + discard_factor * (args.round_id - args.feat_aug_warmup_round))
+        else:
+            mixup_num, discard_rate = args.mixup_num, args.discard_rate
+    return int(mixup_num), int(discard_rate)
 
 
 def M2_updating(args):
