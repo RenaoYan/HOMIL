@@ -227,7 +227,8 @@ MAIN_DIR/
 		├── HOMIL_5x
 		└── HOMIL_20x
 ```
-
+## Citation
+If you find our work useful in your research or if you use parts of this code please consider citing our paper:
 ```
 @ARTICLE{10899821,
   author={Zhu, Lianghui and Yan, Renao and Guan, Tian and Zhang, Fenfen and Guo, Linlang and He, Qiming and Shi, Shanshan and Shi, Huijuan and He, Yonghong and Han, Anjia},
