@@ -227,3 +227,11 @@ MAIN_DIR/
 		├── HOMIL_5x
 		└── HOMIL_20x
 ```
+
+@ARTICLE{10899821,
+  author={Zhu, Lianghui and Yan, Renao and Guan, Tian and Zhang, Fenfen and Guo, Linlang and He, Qiming and Shi, Shanshan and Shi, Huijuan and He, Yonghong and Han, Anjia},
+  journal={IEEE Journal of Biomedical and Health Informatics}, 
+  title={Hierarchically Optimized Multiple Instance Learning With Multi-Magnification Pathological Images for Cerebral Tumor Diagnosis}, 
+  year={2025},
+  pages={1-13},
+  doi={10.1109/JBHI.2025.3544612}}
